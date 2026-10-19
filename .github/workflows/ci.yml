@@ -1,0 +1,62 @@
+name: terraform-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Required for OIDC: lets the job request a short-lived token from GitHub.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "true"
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  validate:
+    name: Format and validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init (no backend)
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+  plan:
+    name: Plan against Azure
+    needs: validate
+    runs-on: ubuntu-latest
+    # Only run when the Azure OIDC variables are configured.
+    if: ${{ vars.AZURE_CLIENT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform plan
+        run: terraform plan -input=false -out=tfplan
+
+      - name: Upload plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: tfplan
+          retention-days: 3
